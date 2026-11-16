@@ -1,0 +1,1 @@
+{"description":"EasyTier no-tun leaf + Komari probe on Abasthan free Web Service","engines":{"node":">=18"},"name":"abasthan-mesh-node","private":true,"scripts":{"start":"node server.js"},"version":"1.0.0"}
