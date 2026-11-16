@@ -42,3 +42,9 @@ Node.js path.
   comfortably inside 512 MB.
 - No sing-box in this build (probe-only, same as the current Railway
   entrypoint v8). Binaries are static x86-64 builds.
+- Logging hygiene (2026-11-17 review fix): the wrapper masks the Komari
+  token in its own startup log lines. Known residual: `easytier-core`
+  itself dumps its loaded config (including `network_secret`) to stdout
+  at startup — that line comes from the binary and cannot be masked from
+  the wrapper, so treat platform log retention as inside the same trust
+  boundary as the dashboard env vars.

@@ -59,12 +59,30 @@ no_tun = true
 `;
 fs.writeFileSync(path.join(RUN, 'easytier.toml'), toml);
 
+// 日志脱敏：-t/--token 后面的值是 Komari token，绝不能打进日志
+// （2026-11-17 review：旧版把完整命令行含 token 打到了平台日志流）。
+// 注意：easytier-core 启动时自己会把含 network_secret 的配置打到 stdout，
+// 那一行拦不住——属于已知残留，见 README。
+function maskArgs(args) {
+  const out = [...args];
+  for (let i = 0; i < out.length - 1; i++) {
+    if (out[i] === '-t' || out[i] === '--token') out[i + 1] = '***';
+  }
+  return out;
+}
+
 function runManaged(name, cmd, args, extraEnv) {
   let child = null;
   let stopped = false;
+  let restartTimer = null;
+  // 5 秒后重起；带 guard：'error' 与 'exit' 可能先后都触发，只排一次。
+  const scheduleRestart = () => {
+    if (stopped || restartTimer) return;
+    restartTimer = setTimeout(() => { restartTimer = null; start(); }, 5000);
+  };
   const start = () => {
     if (stopped) return;
-    console.log(`starting ${name}: ${cmd} ${args.join(' ')}`);
+    console.log(`starting ${name}: ${cmd} ${maskArgs(args).join(' ')}`);
     child = spawn(cmd, args, { env: { ...process.env, ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
     status[name] = 'running';
     child.stdout.on('data', (d) => process.stdout.write(`[${name}] ${d}`));
@@ -73,9 +91,15 @@ function runManaged(name, cmd, args, extraEnv) {
       status[name] = `exited(${code === null ? signal : code})`;
       if (stopped) return;
       console.error(`${name} exited code=${code} signal=${signal}; restarting in 5s`);
-      setTimeout(start, 5000);
+      scheduleRestart();
     });
-    child.on('error', (err) => { console.error(`${name} spawn error:`, err.message); });
+    child.on('error', (err) => {
+      // spawn 失败（如二进制缺失）时 'exit' 未必触发：必须自己置状态并安排重起，
+      // 否则 /health 会一直撒谎报 running。
+      status[name] = `spawn-error(${err.code || err.message})`;
+      console.error(`${name} spawn error:`, err.message);
+      if (!stopped) scheduleRestart();
+    });
   };
   start();
   return {
